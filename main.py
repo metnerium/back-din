@@ -1,8 +1,9 @@
-from typing import List
+from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Depends
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship
 from datetime import datetime, timedelta
+from pydantic import BaseModel
 from passlib.context import CryptContext
 from jose import jwt
 
@@ -17,10 +18,10 @@ Base = declarative_base()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Секретный ключ для JWT
-SECRET_KEY = "Fogot173546"
+SECRET_KEY = "your_secret_key"
 ALGORITHM = "HS256"
 
-# Модель пользователя
+# Модель пользователя SQLAlchemy
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True)
@@ -32,7 +33,7 @@ class User(Base):
     def verify_password(self, password):
         return pwd_context.verify(password, self.password)
 
-# Модель курса
+# Модель курса SQLAlchemy
 class Course(Base):
     __tablename__ = "courses"
     id = Column(Integer, primary_key=True)
@@ -41,7 +42,7 @@ class Course(Base):
     price = Column(Integer)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-# Модель записи на курс
+# Модель записи на курс SQLAlchemy
 class Enrollment(Base):
     __tablename__ = "enrollments"
     id = Column(Integer, primary_key=True)
@@ -51,6 +52,36 @@ class Enrollment(Base):
     completion_date = Column(DateTime)
     user = relationship("User", backref="enrollments")
     course = relationship("Course", backref="enrollments")
+
+# Модели Pydantic
+class UserModel(BaseModel):
+    id: int
+    username: str
+    email: str
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+class CourseModel(BaseModel):
+    id: int
+    name: str
+    description: str
+    price: int
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+class EnrollmentModel(BaseModel):
+    id: int
+    user_id: int
+    course_id: int
+    enrollment_date: datetime
+    completion_date: Optional[datetime] = None
+
+    class Config:
+        orm_mode = True
 
 # Создание таблиц в базе данных
 Base.metadata.create_all(engine)
@@ -74,7 +105,7 @@ def create_access_token(data: dict):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-# Функция для получения пользователя из JWT токена
+# Dependency для получения пользователя по токену
 def get_current_user(token: str = Depends(None), session=Depends(get_session)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -87,7 +118,7 @@ def get_current_user(token: str = Depends(None), session=Depends(get_session)):
     return user
 
 # Обработчики для пользователей
-@app.post("/register", status_code=201)
+@app.post("/register", response_model=UserModel)
 def register(username: str, email: str, password: str, session=Depends(get_session)):
     existing_user = session.query(User).filter((User.username == username) | (User.email == email)).first()
     if existing_user:
@@ -96,7 +127,7 @@ def register(username: str, email: str, password: str, session=Depends(get_sessi
     user = User(username=username, email=email, password=hashed_password)
     session.add(user)
     session.commit()
-    return {"message": "User registered successfully"}
+    return user
 
 @app.post("/login")
 def login(username: str, password: str, session=Depends(get_session)):
@@ -107,12 +138,12 @@ def login(username: str, password: str, session=Depends(get_session)):
     return {"access_token": access_token}
 
 # Обработчики для курсов
-@app.get("/courses", response_model=List[Course])
+@app.get("/courses", response_model=List[CourseModel])
 def get_courses(session=Depends(get_session)):
     return session.query(Course).all()
 
 # Обработчики для записей на курсы
-@app.get("/my_courses", response_model=List[Course])
+@app.get("/my_courses", response_model=List[CourseModel])
 def get_my_courses(user=Depends(get_current_user), session=Depends(get_session)):
     courses = [enrollment.course for enrollment in user.enrollments]
     return courses

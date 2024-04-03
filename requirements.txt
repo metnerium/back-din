@@ -4,3 +4,4 @@ sqlalchemy~=2.0.29
 psycopg2-binary
 passlib~=1.7.4
 python-jose
+pydantic~=2.6.4
